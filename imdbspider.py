@@ -8,74 +8,80 @@ class BookspiderSpider(scrapy.Spider):
     start_urls = ["https://www.imdb.com"]
 
     def parse(self, response):
-        #self.log(f"Scraping page: {response.url}")
-
-        # Extrahera länkar till andra sidor
+        """
+        Parse the main IMDb page to extract links for specific sections such as calendar and top charts.
+        """
+        # Extract links from the navigation menu
         links = response.css("ul.ipc-list.navlinkcat__list.ipc-list--baseAlt a::attr(href)").getall()
 
-        # Gå igenom varje länk och följ den
+        # Iterate through each link to follow and process further
         for link in links:
-            full_url = "https://www.imdb.com" + link  # Fullständig URL
+            full_url = "https://www.imdb.com" + link  # Create full URL
 
-            # Kontrollera om URL:en är för en kalender-sida
+            # Check if the link is related to the calendar section
             if "/calendar/" in full_url:
-                #self.log(f"Following calendar link: {full_url}")
                 yield response.follow(full_url, callback=self.parse_page)
             
-            # Kontrollera om URL:en är för en chart/top-sida, men inte redan en kalender-sida
+            # Check if the link is related to charts or top lists, excluding calendar links
             elif "/chart/" in full_url or "/top/" in full_url:
-                if "/calendar/" not in full_url:  # Gör en extra kontroll för att förhindra dubbletter
-                    #self.log(f" Chart or top link: {full_url}")
+                if "/calendar/" not in full_url:  # Avoid duplicates
                     yield response.follow(full_url, callback=self.parse_chart_page)
-                
-            else:
-                pass
-
 
     def parse_page(self, response):
-        """Hantera den extraherade sidan."""
-        # Extrahera information från sidan du har följt
+        """
+        Parse the calendar page to extract movie names and release dates.
+        """
+        # Extract list of dates
         list_of_dates = response.css("h3.ipc-title__text::text").getall()
+
+        # Extract list of movie names
         list_of_names = response.css("div.ipc-metadata-list-summary-item__tc a.ipc-metadata-list-summary-item__t::text").getall()
 
-        # Yield data
+        # Combine names and dates and yield the data
         for movie, date in zip(list_of_names, list_of_dates):
             yield {
                 'name': movie,
                 'date': date
             }
 
-    def parse_chart_page(self,response):
+    def parse_chart_page(self, response):
+        """
+        Parse the top charts page and extract movie IDs for further processing.
+        """
+        # Fetch JSON data from the API
         api_data = self.get_json()
-        links= []
+        links = []
+
+        # Extract movie IDs from the API response
         for item in api_data["data"]["titles"]:
-            # Navigera genom nycklar för att nå "link"
-            link = item.get('id')
+            link = item.get('id')  # Extract 'id' key
             links.append(link)
+
+        # Construct URLs for each movie and follow them
         url_top = 'https://www.imdb.com/showtimes/title/'
         for l in range(len(links)):
             main_url = url_top + links[l]
-            yield response.follow(main_url,callback=self.parse_chart_page2)
+            yield response.follow(main_url, callback=self.parse_chart_page2)
 
-
-    def parse_chart_page2(self,response):
-
-        # Name
+    def parse_chart_page2(self, response):
+        """
+        Parse the individual movie pages to extract detailed information.
+        """
+        # Extract the movie name
         name = response.css("td.overview-top a::text").get()        
 
-        # Description
+        # Extract the movie description
         description = response.css("div.outline::text").get()
 
-        # Rating
+        # Extract the movie rating
         rating = response.css('span.value::text').get() 
         yield {
-            'name':name,
-            'rating':float(rating),
-            'description':description
-        }
+            'name': name,
+            'rating': float(rating) if rating else None,
+            'description': description
+        }            
 
-            
-
+    
     def get_json(self):
         url = "https://api.graphql.imdb.com/"
 
